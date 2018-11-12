@@ -11,7 +11,7 @@ const STORE = path.join(__dirname, 'cache')
 
 
 var mySort = {
-  time90: function(a, b) {
+  time90: function (a, b) {
     var atm = moment(a.time)
     var btm = moment(b.time)
 
@@ -20,7 +20,7 @@ var mySort = {
     return 0
   },
 
-  time09: function(a, b) {
+  time09: function (a, b) {
     var atm = moment(a.time)
     var btm = moment(b.time)
 
@@ -29,19 +29,19 @@ var mySort = {
     return 0
   },
 
-  nameZA: function(a, b) {
+  nameZA: function (a, b) {
     if (a.name < b.name) return 1
     if (a.name > b.name) return -1
     return 0
   },
 
-  nameAZ: function(a, b) {
+  nameAZ: function (a, b) {
     if (a.name < b.name) return -1
     if (a.name > b.name) return 1
     return 0
   },
 
-  random: function(a, b) {
+  random: function (a, b) {
     return 0.5 - Math.random()
   }
 }
@@ -51,45 +51,47 @@ var mySort = {
 
 var NodeHelper = require('node_helper')
 module.exports = NodeHelper.create({
-  start: function() {
+  start: function () {
     this.config = {}
     this.images = []
     this.index = 0
   },
 
   socketNotificationReceived: function (noti, payload) {
-    switch(noti) {
+    switch (noti) {
       case 'INIT_CONFIG':
         this.initializeAfterLoading(payload)
         break;
     }
   },
 
-  initializeAfterLoading: function(config) {
+  initializeAfterLoading: function (config) {
     this.config = config
     if (!this.config.verbose) {
 
     }
-    this.dbx = new Dropbox({accessToken: this.config.dropboxAccessToken})
+    this.dbx = new Dropbox({ accessToken: this.config.dropboxAccessToken })
     console.log('[DBXWLP] Configuration is initialized.')
     this.scan(this.config.scanDirectory)
   },
 
-  scan: function(directory, continueArg={}) {
+  scan: function (directory, continueArg = {}) {
     console.log("[DBXWLP] Starting photo scanning.")
     var extCount = this.config.search.length;
     var tempItems = []
     var maxResult = 10
     var totalCount = 0
-    var endFlag = false
+    var endFlag = true
+    var page = Math.floor(Math.random() * Math.floor(this.config.pages))
+
     var fileSearch = (directory, ext, start) => {
       this.dbx.filesSearch({
         "path": directory,
         "query": ext,
-        "start": start,
-        "max_results": maxResult,
+        "start": page,
+        "max_results": this.config.pageSize,
         "mode": "filename"
-      }).then((result)=>{
+      }).then((result) => {
         var count = result.matches.length
         totalCount += count
         for (var j in result.matches) {
@@ -101,11 +103,11 @@ module.exports = NodeHelper.create({
             continue
           }
           this.dbx.filesGetMetadata({
-            "path":item.metadata.path_lower,
-            "include_media_info":true,
-          }).then((it)=>{
-            var dimensions = {"width":null, "height":null}
-            var location = {"latitude":null, "longitude":null}
+            "path": item.metadata.path_lower,
+            "include_media_info": true,
+          }).then((it) => {
+            var dimensions = { "width": null, "height": null }
+            var location = { "latitude": null, "longitude": null }
             var time = new moment(it.server_modified).format("x")
             if (typeof it.media_info !== "undefined") {
               dimensions = it.media_info.metadata.dimensions
@@ -128,7 +130,7 @@ module.exports = NodeHelper.create({
           }, console.error)
         }
         if (result.more) {
-          fileSearch(directory, ext, result.start)
+          //fileSearch(directory, ext, result.start)
         } else {
           extCount--
 
@@ -144,13 +146,13 @@ module.exports = NodeHelper.create({
     }
   },
 
-  scanned: function() {
+  scanned: function () {
     console.log("[DBXWLP] All photos are found.:", this.images.length)
     this.images.sort(mySort[this.config.sort])
     this.work()
   },
 
-  work: function() {
+  work: function () {
     var timer = null
     if (this.index >= this.images.length) {
       clearTimeout(timer)
@@ -161,13 +163,13 @@ module.exports = NodeHelper.create({
       var photo = this.images[this.index]
       this.download(photo)
       this.index++
-      timer = setTimeout(()=>{
+      timer = setTimeout(() => {
         this.work()
       }, this.config.refreshInterval)
     }
   },
 
-  download: function(photo) {
+  download: function (photo) {
     photo.orientation = 1
     photo.time = new moment.unix(photo.time / 1000).format(this.config.dateTimeFormat)
     photo.locationText = ""
@@ -176,7 +178,7 @@ module.exports = NodeHelper.create({
     var getGeo = (photo) => {
       if (this.config.tokenLocationIQ && photo.location) {
         if (photo.location.latitude && photo.location.longitude) {
-          var geo = this.getGeoReverse(photo.location, (locString)=>{
+          var geo = this.getGeoReverse(photo.location, (locString) => {
             photo.locationText = locString
             this.sendSocketNotification("NEW_PHOTO", photo)
             return
@@ -192,7 +194,7 @@ module.exports = NodeHelper.create({
 
     var readOri = (photo, cb) => {
       try {
-        new ExifImage({ image : filePath }, (error, exifData) => {
+        new ExifImage({ image: filePath }, (error, exifData) => {
           if (error) {
             //console.log("Warning(Ignore):", error)
             cb(photo)
@@ -200,8 +202,8 @@ module.exports = NodeHelper.create({
           }
           photo.orientation
             = (typeof exifData.image.Orientation !== "undefined")
-            ? exifData.image.Orientation
-            : 1
+              ? exifData.image.Orientation
+              : 1
           cb(photo)
           return
         })
@@ -214,14 +216,14 @@ module.exports = NodeHelper.create({
     }
 
 
-    this.dbx.filesDownload({"path":photo.path}).then((data) => {
+    this.dbx.filesDownload({ "path": photo.path }).then((data) => {
       fs.writeFileSync(filePath, data.fileBinary, "binary")
       console.log("[DBXWLP]", photo.name, "is downloaded.")
       readOri(photo, getGeo)
     })
   },
 
-  getGeoReverse: function(location, onFinished) {
+  getGeoReverse: function (location, onFinished) {
     var lat = location.latitude
     var lon = location.longitude
     var query = "http://locationiq.org/v1/reverse.php?format=json&key="
@@ -231,52 +233,52 @@ module.exports = NodeHelper.create({
 
 
 
-      request(query, { json: true }, (err, res, data) => {
-        if (err) {
-          console.error(err)
-          return null
-        }
-        var loc = ""
-        var part = ""
+    request(query, { json: true }, (err, res, data) => {
+      if (err) {
+        console.error(err)
+        return null
+      }
+      var loc = ""
+      var part = ""
 
-        var level = [
-          'water', 'road', 'hotel', , 'pedestrian', 'stadium', 'university', 'public',
-          'manor', 'memorial', 'monument', 'ruins', 'tower', 'beach_resort',
-          'garden', 'marina', 'park', 'american_football', 'baseball',
-          'golf', 'multi', 'building', 'aquarium', 'artwork', 'attraction',
-          'museum', 'theme_park', 'viewpoint', 'zoo', 'castle', 'fort',
-          'gallery'
-        ]
-        for (var l in level) {
-          var s = level[l]
-          if(typeof data.address[s] !== 'undefined') part = data.address[s]
-        }
-        loc += ((part) ? (part + ", ") : "")
+      var level = [
+        'water', 'road', 'hotel', , 'pedestrian', 'stadium', 'university', 'public',
+        'manor', 'memorial', 'monument', 'ruins', 'tower', 'beach_resort',
+        'garden', 'marina', 'park', 'american_football', 'baseball',
+        'golf', 'multi', 'building', 'aquarium', 'artwork', 'attraction',
+        'museum', 'theme_park', 'viewpoint', 'zoo', 'castle', 'fort',
+        'gallery'
+      ]
+      for (var l in level) {
+        var s = level[l]
+        if (typeof data.address[s] !== 'undefined') part = data.address[s]
+      }
+      loc += ((part) ? (part + ", ") : "")
 
-        part = ""
-        var level = [
-          'hamlet', 'isolated_dwelling', 'farm', 'allotments',
-          'plot', 'city_block', 'neighbourhood', 'quarter',
-          'suburb', 'borough', 'village', 'town', 'city'
-        ]
-        for (var l in level) {
-          var s = level[l]
-          if(typeof data.address[s] !== 'undefined') part = data.address[s]
-        }
-        loc += ((part) ? (part + ", ") : "")
+      part = ""
+      var level = [
+        'hamlet', 'isolated_dwelling', 'farm', 'allotments',
+        'plot', 'city_block', 'neighbourhood', 'quarter',
+        'suburb', 'borough', 'village', 'town', 'city'
+      ]
+      for (var l in level) {
+        var s = level[l]
+        if (typeof data.address[s] !== 'undefined') part = data.address[s]
+      }
+      loc += ((part) ? (part + ", ") : "")
 
-        part = ""
-        var level = [
-          'state', 'region', 'province', 'district', 'county', 'municipality'
-        ]
-        for (var l in level) {
-          var s = level[l]
-          if(typeof data.address[s] !== 'undefined') part = data.address[s]
-        }
-        loc += ((part) ? (part + ", ") : "")
+      part = ""
+      var level = [
+        'state', 'region', 'province', 'district', 'county', 'municipality'
+      ]
+      for (var l in level) {
+        var s = level[l]
+        if (typeof data.address[s] !== 'undefined') part = data.address[s]
+      }
+      loc += ((part) ? (part + ", ") : "")
 
-        loc += data.address.country_code.toUpperCase()
-        onFinished(loc)
-      })
+      loc += data.address.country_code.toUpperCase()
+      onFinished(loc)
+    })
   }
 })
